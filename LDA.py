@@ -135,14 +135,8 @@ if __name__ == "__main__":
     # Train model
     lda_model = modeler.train_lda(num_topics=5)
     topics = lda_model.show_topics(num_topics=5, num_words=10, formatted=True)
-
-    # Chuyển thành DataFrame để dễ dàng xuất CSV
     topics_df = pd.DataFrame(topics, columns=['Topic ID', 'Top Words'])
-
-    # Xuất DataFrame thành CSV
     topics_df.to_csv('lda_topics.csv', index=False)
-
-    # In ra các chủ đề
     print(topics_df)
 
     # Visualize

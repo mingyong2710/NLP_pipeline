@@ -1,9 +1,13 @@
+# crawl_selenium.py
 from bs4 import BeautifulSoup
 import requests
 import re
 import json
 import time
 import random
+import pandas as pd
+
+gc_collect = __import__('gc').collect
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -12,268 +16,220 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from helper.handleCaptcha import solve_captcha
-import gc
 
 HEADERS = {
-    'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
     'Accept-Language': 'vi,en-US;q=0.9,en;q=0.8',
     'accept-encoding': 'gzip, deflate, br, zstd',
     'referer': 'https://www.amazon.com/',
     'accept': '*/*'
 }
 
-def setup_driver(headless=False):  # Changed default to False
+def setup_driver(headless=False):
     """Setup and return a Chrome webdriver with appropriate options"""
     chrome_options = Options()
-    
     if headless:
-        chrome_options.add_argument("--headless")  # Run in headless mode (no UI)
-    
+        chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument(f"user-agent={HEADERS['User-Agent']}")
-    
-    # Add some preferences that make detection harder
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument(f"--user-agent={HEADERS['User-Agent']}")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
-    
-    # Use webdriver-manager to handle driver installation
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
-    
-    # Set window size to typical desktop
     driver.set_window_size(1920, 1080)
     return driver
 
+
 def get_product_info(url):
-    """Extract basic product information from an Amazon product page using Selenium"""
+    """Extract Amazon product info and reviews."""
     driver = setup_driver(headless=True)
     try:
         driver.get(url)
-        time.sleep(random.uniform(3, 5))  # Random delay to mimic human behavior
-        
-        # Check if we hit a CAPTCHA and try to solve it
+        time.sleep(random.uniform(3, 5))
         if solve_captcha(driver):
-            print("🔄 Continuing after captcha solution...")
-            time.sleep(3)  # Wait a bit for the page to fully load
+            time.sleep(3)
 
-        # Product dictionary to store all information
         product = {}
-        
-        # Get product title
+        # Title
         try:
-            title_element = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.ID, "productTitle"))
-            )
-            product["title"] = title_element.text.strip()
+            elem = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "productTitle")))
+            product['title'] = elem.text.strip()
         except:
-            product["title"] = "Title not found"
-        
-        # Get product price
+            product['title'] = None
+        # Price
         try:
-            price_element = driver.find_element(By.CSS_SELECTOR, ".a-offscreen")
-            product["price"] = price_element.get_attribute("innerText")
+            price = driver.find_element(By.CSS_SELECTOR, ".a-offscreen").get_attribute("innerText")
+            product['price'] = price
         except:
-            product["price"] = "Price not found"
-        
-        # Get product rating
+            product['price'] = None
+        # Rating
         try:
-            rating_element = driver.find_element(By.CSS_SELECTOR, ".a-icon-alt")
-            product["rating"] = rating_element.get_attribute("innerText")
+            rating = driver.find_element(By.CSS_SELECTOR, ".a-icon-alt").get_attribute("innerText")
+            product['rating'] = rating
         except:
-            product["rating"] = "Rating not found"
-        
-        # Get number of reviews
+            product['rating'] = None
+        # Reviews
+        product['reviews'] = []
         try:
-            review_count_element = driver.find_element(By.ID, "acrCustomerReviewText")
-            product["review_count"] = review_count_element.text
-        except:
-            product["review_count"] = "Review count not found"
-        
-        # Get product description
-        try:
-            description_element = driver.find_element(By.ID, "feature-bullets")
-            product["description"] = description_element.text
-        except:
-            product["description"] = "Description not found"
-
-        # Get any information from table (if available) <table class="a-normal a-spacing-micro">
-        try:
-            product["table"] = {}  # Initialize the table dictionary
-            table_element = driver.find_element(By.CSS_SELECTOR, ".a-normal.a-spacing-micro")
-            table_rows = table_element.find_elements(By.TAG_NAME, "tr")
-            for row in table_rows:
-                cells = row.find_elements(By.TAG_NAME, "td")
-                if len(cells) == 2:
-                    key = cells[0].text.strip()
-                    value = cells[1].text.strip()
-                    product["table"][key] = value
-        except:
-            product["table"] = {}  # Ensure table key exists even if there's an error
-        
-        # Get product images
-        try:
-            img_element = driver.find_element(By.ID, "landingImage")
-            img_data = img_element.get_attribute('data-a-dynamic-image')
-            if img_data:
-                img_urls = json.loads(img_data)
-                product["images"] = list(img_urls.keys())
-            else:
-                product["images"] = [img_element.get_attribute('src')]
-        except:
-            product["images"] = []
-
-        # Get reviews <li id="" data-hook="review" class="review aok-relative">
-        try:
-            product["reviews"] = []  # Initialize the reviews list
-            review_elements = driver.find_elements(By.CSS_SELECTOR, "li.review")
-            print(f"Found {len(review_elements)} reviews")
-            for review in review_elements:
-                review_dict = {}
-                # review_dict["title"] = review.find_element(By.CSS_SELECTOR, "a[data-hook='review-title']").text.strip()
-                # review_dict["rating"] = review.find_element(By.CSS_SELECTOR, "i[data-hook='review-star-rating']").text.strip()
-                # review_dict["text"] = review.find_element(By.CSS_SELECTOR, "span[data-hook='review-body']").text.strip()
-                # review_dict["author"] = review.find_element(By.CSS_SELECTOR, "span.a-profile-name").text.strip()
-                # review_dict["date"] = review.find_element(By.CSS_SELECTOR, "span[data-hook='review-date']").text.strip()
-                # product["reviews"].append(review_dict)
-
-                # For the review title
+            for rev in driver.find_elements(By.CSS_SELECTOR, "li.review"):
+                r = {}
                 try:
-                    # Try first with anchor tag (original reviews)
-                    try:
-                        title_element = review.find_element(By.CSS_SELECTOR, "a[data-hook='review-title']")
-                        review_dict["title"] = title_element.text.strip()
-                    except:
-                        # If not found, try with span (reviews from other countries)
-                        title_element = review.find_element(By.CSS_SELECTOR, "span[data-hook='review-title']")
-                        review_dict["title"] = title_element.text.strip()
+                    r['title'] = rev.find_element(By.CSS_SELECTOR, "a[data-hook='review-title']").text.strip()
                 except:
-                    review_dict["title"] = "No title"
-
-                # For the review text
+                    r['title'] = None
                 try:
-                    text_element = review.find_element(By.CSS_SELECTOR, "span[data-hook='review-body']")
-                    review_dict["text"] = text_element.text.strip()
+                    r['text'] = rev.find_element(By.CSS_SELECTOR, "span[data-hook='review-body']").text.strip()
                 except:
-                    review_dict["text"] = "No review text"
-                
-                # For the author
+                    r['text'] = None
                 try:
-                    author_element = review.find_element(By.CSS_SELECTOR, "span.a-profile-name")
-                    review_dict["author"] = author_element.text.strip()
+                    r['author'] = rev.find_element(By.CSS_SELECTOR, "span.a-profile-name").text.strip()
                 except:
-                    review_dict["author"] = "Anonymous"
-                
-                # For the review date
+                    r['author'] = None
                 try:
-                    date_element = review.find_element(By.CSS_SELECTOR, "span[data-hook='review-date']")
-                    review_dict["date"] = date_element.text.strip()
+                    r['date'] = rev.find_element(By.CSS_SELECTOR, "span[data-hook='review-date']").text.strip()
                 except:
-                    review_dict["date"] = "No date"
-
-                product["reviews"].append(review_dict)
-        except Exception as e:
-            print(f"Error parsing reviews: {str(e)}")
-            product["reviews"] = []  # Ensure reviews key exists even if there's an error
-        
+                    r['date'] = None
+                product['reviews'].append(r)
+        except:
+            pass
         return product
-    except Exception as e:
-        return {"error": str(e)}
     finally:
-        driver.quit()  # Close the browser
-        del driver  # Explicitly delete the driver object
-        gc.collect()  # Force garbage collection
+        driver.quit()
+        gc_collect()
 
-# def get_reviews(url, num_reviews=10):
-#     """Fetch product reviews from Amazon product page using Selenium"""
-#     driver = setup_driver()
-#     try:
-#         # First navigate to product page
-#         driver.get(url)
-#         time.sleep(random.uniform(2, 4))
-        
-#         # Check for robot check
-#         if "robot" in driver.page_source.lower() or "captcha" in driver.page_source.lower():
-#             return {"error": "Robot check detected on product page"}
-        
-#         # Try to find and click on "See all reviews" link
-#         try:
-#             reviews_link = driver.find_element(By.CSS_SELECTOR, "a[data-hook='see-all-reviews-link-foot']")
-#             reviews_link.click()
-#             time.sleep(random.uniform(3, 5))
-#         except:
-#             # If not found, try to construct the reviews URL
-#             # Extract product ID from URL
-#             product_id_match = re.search(r"/dp/([^/]+)", url)
-#             if product_id_match:
-#                 product_id = product_id_match.group(1)
-#                 reviews_url = f"https://www.amazon.com/product-reviews/{product_id}"
-#                 driver.get(reviews_url)
-#                 time.sleep(random.uniform(3, 5))
-        
-#         reviews_list = []
-#         page_num = 1
-        
-#         while len(reviews_list) < num_reviews and page_num <= 5:  # Limit to 5 pages
-#             # Check for robot check on reviews page
-#             if "robot" in driver.page_source.lower() or "captcha" in driver.page_source.lower():
-#                 break
-                
-#             # Parse reviews on current page
-#             soup = BeautifulSoup(driver.page_source, 'html.parser')
-#             review_elements = soup.find_all("div", attrs={'data-hook': 'review'})
-            
-#             for review in review_elements:
-#                 if len(reviews_list) >= num_reviews:
-#                     break
-                    
-#                 review_dict = {}
-                
-#                 # Get review title
-#                 title_element = review.find("a", attrs={'data-hook': 'review-title'})
-#                 if not title_element:
-#                     title_element = review.find("span", attrs={'data-hook': 'review-title'})
-#                 review_dict["title"] = title_element.text.strip() if title_element else "No title"
-                
-#                 # Get review rating
-#                 rating_element = review.find("i", attrs={'data-hook': 'review-star-rating'})
-#                 if not rating_element:
-#                     rating_element = review.find("i", attrs={'data-hook': 'cmps-review-star-rating'})
-#                 review_dict["rating"] = rating_element.text.strip() if rating_element else "No rating"
-                
-#                 # Get review text
-#                 body_element = review.find("span", attrs={'data-hook': 'review-body'})
-#                 review_dict["text"] = body_element.text.strip() if body_element else "No review text"
-                
-#                 # Get review author
-#                 author_element = review.find("span", attrs={'class': 'a-profile-name'})
-#                 review_dict["author"] = author_element.text.strip() if author_element else "Anonymous"
-                
-#                 # Get review date
-#                 date_element = review.find("span", attrs={'data-hook': 'review-date'})
-#                 review_dict["date"] = date_element.text.strip() if date_element else "No date"
-                
-#                 reviews_list.append(review_dict)
-            
-#             # Go to next page if needed
-#             if len(reviews_list) < num_reviews:
-#                 try:
-#                     next_link = driver.find_element(By.CSS_SELECTOR, ".a-pagination .a-last a")
-#                     next_link.click()
-#                     time.sleep(random.uniform(3, 5))
-#                     page_num += 1
-#                 except:
-#                     break
-        
-#         return reviews_list
-#     except Exception as e:
-#         return {"error": str(e)}
-#     finally:
-#         driver.quit()
 
-# if __name__ == "__main__":
-#     # Test the functions
-#     product_url = "https://www.amazon.com/SAMSUNG-Smartphone-Processor-ProScaler-Manufacturer/dp/B0DP3DFMHB/"
-#     # product_url = "https://www.amazon.com/CHEF-iQ-Thermometer-Ultra-Thin-Monitoring/dp/B0C7JNJW2N/"
-#     result = get_product_info(product_url)
-#     print(result["reviews"][-1].get("text", "No review text"))
+def get_ebay_reviews(url, num_reviews=10):
+    """Extract review texts from an eBay product review page."""
+    driver = setup_driver(headless=True)
+    all_reviews = []
+    try:
+        driver.get(url)
+        time.sleep(random.uniform(2, 4))
+        page = 1
+        while len(all_reviews) < num_reviews:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'p[itemprop="reviewBody"]'))
+            )
+            elems = driver.find_elements(By.CSS_SELECTOR, 'p[itemprop="reviewBody"]')
+            for el in elems:
+                text = el.text.strip()
+                if text:
+                    all_reviews.append({'title': None, 'text': text, 'author': None, 'date': None})
+                    if len(all_reviews) >= num_reviews:
+                        break
+            try:
+                next_btn = driver.find_element(By.CSS_SELECTOR, 'a[rel="next"]')
+                link = next_btn.get_attribute('href')
+                if not link:
+                    break
+                driver.get(link)
+                time.sleep(random.uniform(2, 4))
+                page += 1
+            except:
+                break
+        return {'comments': all_reviews[:num_reviews]}
+    finally:
+        driver.quit()
+        gc_collect()
+
+
+def get_youtube_comments(url, num_comments=10):
+    """Extract comments from a YouTube video page."""
+    driver = setup_driver(headless=True)
+    comments = []
+    try:
+        driver.get(url)
+        time.sleep(5)
+        # Scroll to comments section
+        driver.execute_script("window.scrollTo(0, 600);")
+        time.sleep(2)
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_all_elements_located((By.ID, "content-text"))
+        )
+        last_height = driver.execute_script("return document.documentElement.scrollHeight")
+        while len(comments) < num_comments:
+            driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
+            time.sleep(2)
+            elems = driver.find_elements(By.ID, "content-text")
+            for el in elems:
+                text = el.text.strip()
+                if text and text not in comments:
+                    comments.append(text)
+                    if len(comments) >= num_comments:
+                        break
+            new_height = driver.execute_script("return document.documentElement.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
+        return {'comments': [{'text': c} for c in comments[:num_comments]]}
+    finally:
+        driver.quit()
+        gc_collect()
+
+
+# app.py
+import streamlit as st
+from utils.openai_helper import get_openai_streaming_response, get_openai_response
+from helper.crawl_selenium import get_product_info, get_ebay_reviews, get_youtube_comments
+
+def main():
+    st.set_page_config(layout="wide", page_title="Multi-source Chatbot", page_icon="🤖")
+    st.sidebar.header("Chatbot Configuration")
+
+    source = st.sidebar.selectbox("Chọn nguồn dữ liệu", ["Amazon", "eBay", "YouTube"])
+    url = st.sidebar.text_input("Nhập URL sản phẩm/video")
+    num_comments = st.sidebar.slider("Số lượng comments/reviews", min_value=1, max_value=50, value=10)
+
+    if st.sidebar.button("Scrape"):
+        if not url:
+            st.sidebar.error("Vui lòng nhập URL!")
+        else:
+            with st.sidebar.status("Đang crawl dữ liệu..."):
+                if source == "Amazon":
+                    data = get_product_info(url)
+                elif source == "eBay":
+                    data = get_ebay_reviews(url, num_comments)
+                else:
+                    data = get_youtube_comments(url, num_comments)
+
+                st.session_state.product_data = data
+                items = data.get('reviews') if source in ["Amazon"] else data.get('comments')
+                # Build prompt
+                prompt = "Dưới đây là các nội dung người dùng đã nói về nguồn này:\n"
+                for i, it in enumerate(items, 1):
+                    prompt += f"- {it.get('text')}\n"
+                summary = get_openai_response(prompt)
+
+                # Update system message
+                sys_msg = f"Bạn là trợ lý AI. Dưới đây là tóm tắt nội dung từ {source}:\n{summary}\n"
+                for idx, it in enumerate(items, 1):
+                    sys_msg += f"{source} #{idx}: {it.get('text')}\n"
+                st.session_state.messages_history = [{'role': 'system', 'content': sys_msg}]
+                st.session_state.conversation.append(('assistant', f"Hoàn thành crawl {source}!\n{summary}"))
+                st.rerun()
+
+    st.title("Multi-source Chatbot")
+    st.session_state.setdefault('conversation', [])
+    st.session_state.setdefault('messages_history', [{'role': 'system', 'content': 'Bạn là trợ lý AI hữu ích.'}])
+
+    for role, msg in st.session_state.conversation:
+        if role == 'user':
+            st.markdown(f"**Bạn:** {msg}")
+        else:
+            st.markdown(f"**Bot:** {msg}")
+
+    user_input = st.chat_input("Nhập câu hỏi...")
+    if user_input:
+        st.session_state.conversation.append(('user', user_input))
+        st.session_state.messages_history.append({'role': 'user', 'content': user_input})
+        full_resp = ''
+        for chunk in get_openai_streaming_response(st.session_state.messages_history):
+            full_resp += chunk
+        st.session_state.conversation.append(('assistant', full_resp))
+        st.session_state.messages_history.append({'role': 'assistant', 'content': full_resp})
+        st.rerun()
+
+if __name__ == '__main__':
+    main()

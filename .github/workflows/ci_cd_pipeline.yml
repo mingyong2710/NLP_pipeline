@@ -1,20 +1,19 @@
 # .github/workflows/ci_cd_pipeline.yml
-
 name: NLP Review Analysis CI/CD
 
 on:
   push:
-    branches: [ main, develop ] # Chạy khi push lên nhánh main hoặc develop
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ] # Chạy khi tạo PR tới nhánh main hoặc develop
+    branches: [ main, develop ]
 
 jobs:
   test-and-lint:
     name: Test, Lint, and Format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Runner là Ubuntu
     strategy:
       matrix:
-        python-version: ["3.9", "3.10"] # Chạy trên nhiều phiên bản Python nếu cần
+        python-version: ["3.9"] # Hoặc các phiên bản bạn dùng
 
     steps:
       - name: Checkout repository
@@ -24,14 +23,31 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # Cache dependencies để build nhanh hơn
+          cache: 'pip'
 
-      - name: Install dependencies
+      # THÊM BƯỚC NÀY VÀO:
+      - name: Install system dependencies for Pillow and other libraries
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            libjpeg-dev \
+            zlib1g-dev \
+            libpng-dev \
+            libtiff5-dev \
+            libfreetype6-dev \
+            liblcms2-dev \
+            libwebp-dev \
+            libopenjp2-7-dev \
+            # Thêm các thư viện khác nếu cần cho các package khác
+            # Ví dụ: tk-dev (cho tkinter nếu Pillow cần)
+            # Ví dụ: libffi-dev (thỉnh thoảng cần)
+            # Ví dụ: gcc g++ make (công cụ build cơ bản, thường đã có sẵn)
+
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          # Cài thêm các thư viện cho linting và testing nếu chưa có trong requirements.txt
-          pip install flake8 black isort pytest pytest-cov bandit
+
 
       - name: Lint with Flake8
         run: |

@@ -138,10 +138,7 @@ class LDATopicModeler:
         return lemmatized_texts
 
     def preprocess_documents(self):
-        """
-        Full preprocessing pipeline for the documents in self.df_docs.
-        Populates self.processed_texts_tokens and self.doc_indices_after_preprocessing.
-        """
+
         print("[LDATopicModeler preprocess_documents] Starting preprocessing...")
         self.original_texts = self.df_docs[self.text_column].astype(str).tolist()
         
@@ -184,18 +181,7 @@ class LDATopicModeler:
 
     def train_lda_model(self, num_topics=10, passes=10, random_state=100, 
                         dict_no_below=5, dict_no_above=0.5, workers=None):
-        """
-        Trains the LDA model on the preprocessed documents.
-        Args:
-            num_topics (int): Number of topics.
-            passes (int): Number of passes through the corpus during training.
-            random_state (int): Random seed for reproducibility.
-            dict_no_below (int): Min document frequency for dictionary words.
-            dict_no_above (float): Max document frequency (as fraction) for dictionary words.
-            workers (int, optional): Number of worker processes for parallelization. Defaults to None (uses gensim default).
-        Returns:
-            gensim.models.LdaModel: The trained LDA model, or None if training failed.
-        """
+
         print(f"\n[LDATopicModeler train_lda_model] Attempting to train LDA with {num_topics} topics.")
         
         if not self.processed_texts_tokens or not any(self.processed_texts_tokens):
@@ -275,7 +261,6 @@ class LDATopicModeler:
             traceback.print_exc()
             self.lda_model = None
             return None
-
     def get_dominant_topics_dataframe(self, min_topic_probability=0.01):
         """
         Assigns a dominant topic to each document that was part of the LDA corpus

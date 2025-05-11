@@ -58,7 +58,7 @@ jobs:
         run: |
           black --check .
           isort --check-only .
-          continue-on-error: true
+        continue-on-error: true
 
       - name: Run tests with Pytest
         run: |

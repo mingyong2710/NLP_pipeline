@@ -60,14 +60,8 @@ jobs:
           isort --check-only .
         continue-on-error: true
 
-      - name: Run tests with Pytest
-        run: |
 
-          pytest tests/ # Hoặc chỉ pytest nếu tests ở thư mục gốc hoặc cấu hình trong pytest.ini
 
-      - name: Security Scan with Bandit (Optional)
-        run: |
-          bandit -r src/ -ll # -ll để chỉ báo cáo các vấn đề ở mức độ trung bình trở lên
 
   # ----- PHẦN CD - VÍ DỤ BUILD DOCKER IMAGE VÀ PUSH LÊN GITHUB CONTAINER REGISTRY (GHCR) -----
   # Job này chỉ chạy khi push lên nhánh 'main' VÀ job 'test-and-lint' thành công

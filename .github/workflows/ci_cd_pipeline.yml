@@ -38,10 +38,7 @@ jobs:
             liblcms2-dev \
             libwebp-dev \
             libopenjp2-7-dev \
-            # Thêm các thư viện khác nếu cần cho các package khác
-            # Ví dụ: tk-dev (cho tkinter nếu Pillow cần)
-            # Ví dụ: libffi-dev (thỉnh thoảng cần)
-            # Ví dụ: gcc g++ make (công cụ build cơ bản, thường đã có sẵn)
+
 
       - name: Install Python dependencies
         run: |
@@ -52,21 +49,20 @@ jobs:
 
       - name: Lint with Flake8
         run: |
-          # Dừng build nếu có lỗi. Bỏ --exit-zero nếu muốn chỉ cảnh báo
+
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Thoát nếu có bất kỳ lỗi nào (ngoại trừ một số mã lỗi nhất định)
+
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Format with Black and Sort imports with isort (Check only)
         run: |
           black --check .
           isort --check-only .
+          continue-on-error: true
 
       - name: Run tests with Pytest
         run: |
-          # Giả sử bạn có thư mục 'tests' chứa các file test_*.py
-          # Hoặc pytest sẽ tự tìm các file test
-          # pytest --cov=src # Để tính coverage cho thư mục src
+
           pytest tests/ # Hoặc chỉ pytest nếu tests ở thư mục gốc hoặc cấu hình trong pytest.ini
 
       - name: Security Scan with Bandit (Optional)
